@@ -1,0 +1,1487 @@
+// ==UserScript==
+
+// @name Gemini Reader Pro
+
+// @namespace http://tampermonkey.net/
+
+// @version 1.0.0
+
+// @description 沉浸式阅读 · 智能目录 · 设置面板
+
+// @author Zhang Zuhao
+
+// @match https://gemini.google.com/*
+
+// @grant GM_setValue
+
+// @grant GM_getValue
+
+// @grant GM_addStyle
+
+// @run-at document-idle
+
+// ==/UserScript==
+
+  
+
+(function () {
+
+'use strict';
+
+  
+
+// ─── 配置默认值 ───────────────────────────────────────────────
+
+const DEFAULTS = {
+
+immersive: false,
+
+theme: 'yellow',
+
+fontType: 'serif',
+
+customFontName: '',
+
+customFontUrl: '',
+
+fontSize: 19,
+
+lineHeight: 1.8,
+
+letterSpacing: 0,
+
+maxWidth: 900,
+
+publicStyle: false,
+
+hideFooter: true,
+
+};
+
+  
+
+function loadCfg() {
+
+const raw = GM_getValue('grp_config', null);
+
+return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
+
+}
+
+function saveCfg(c) { GM_setValue('grp_config', JSON.stringify(c)); }
+
+  
+
+let cfg = loadCfg();
+
+  
+
+// ─── 主题 ─────────────────────────────────────────────────────
+
+const THEMES = {
+
+yellow: { bg: '#f6f1e7', text: '#5b4636', accent: '#fff', inputBg: 'rgba(255,255,255,0.7)' },
+
+white: { bg: '#ffffff', text: '#333333', accent: '#f7f7f7', inputBg: 'rgba(255,255,255,0.85)' },
+
+green: { bg: '#cce8cf', text: '#222222', accent: '#ffffff', inputBg: 'rgba(255,255,255,0.7)' },
+
+dark: { bg: '#1a1a1a', text: '#bfbfbf', accent: '#2d2d2d', inputBg: 'rgba(42,42,42,0.8)' },
+
+};
+
+  
+
+const FONTS = {
+
+serif: '"Source Han Serif SC","Noto Serif CJK SC","Songti SC",serif',
+
+sans: '"Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif',
+
+};
+
+  
+
+// ─── 样式 ─────────────────────────────────────────────────────
+
+GM_addStyle(`
+
+/* 沉浸式阅读变量 */
+
+:root {
+
+--grp-bg: #f6f1e7;
+
+--grp-text: #5b4636;
+
+--grp-accent: #fff;
+
+--grp-input-bg: rgba(255,255,255,0.7);
+
+--grp-font: ${FONTS.serif};
+
+--grp-fs: 19px;
+
+--grp-lh: 1.8;
+
+--grp-ls: 0px;
+
+--grp-max-w: 900px;
+
+--grp-toc-w: 300px;
+
+}
+
+  
+
+/* 沉浸模式激活时覆盖 Gemini 背景色 */
+
+body.grp-immersive,
+
+body.grp-immersive .mat-drawer-container,
+
+body.grp-immersive bard-sidenav-content,
+
+body.grp-immersive .content-wrapper {
+
+background-color: var(--grp-bg) !important;
+
+}
+
+body.grp-immersive .model-response-text p,
+
+body.grp-immersive .model-response-text li {
+
+color: var(--grp-text) !important;
+
+text-align: justify !important;
+
+}
+
+body.grp-immersive .model-response-text h1,
+
+body.grp-immersive .model-response-text h2,
+
+body.grp-immersive .model-response-text h3 {
+
+color: var(--grp-text) !important;
+
+}
+
+body.grp-immersive hallucination-disclaimer,
+
+body.grp-immersive .hallucination-disclaimer {
+
+display: none !important;
+
+}
+
+  
+
+/* 排版设置：始终生效，不依赖沉浸模式 */
+
+.model-response-text p,
+
+.model-response-text li {
+
+font-family: var(--grp-font) !important;
+
+font-size: var(--grp-fs) !important;
+
+line-height: var(--grp-lh) !important;
+
+letter-spacing: var(--grp-ls) !important;
+
+}
+
+.model-response-text h1,
+
+.model-response-text h2,
+
+.model-response-text h3 {
+
+font-family: var(--grp-font) !important;
+
+letter-spacing: var(--grp-ls) !important;
+
+}
+
+.conversation-container,
+
+.response-container,
+
+.inner-container {
+
+max-width: var(--grp-max-w) !important;
+
+margin: 0 auto !important;
+
+}
+
+  
+
+/* 公众号半覆盖高亮 */
+
+body.grp-public .model-response-text strong,
+
+body.grp-public .model-response-text b {
+
+background: linear-gradient(to bottom, transparent 55%, rgba(255,235,59,0.6) 0) !important;
+
+padding: 0 2px !important;
+
+border-radius: 2px !important;
+
+}
+
+  
+
+/* 目录面板 push 布局 */
+
+body.grp-toc-open bard-sidenav-content {
+
+margin-right: var(--grp-toc-w) !important;
+
+transition: margin-right 0.3s cubic-bezier(0.2,0,0,1) !important;
+
+}
+
+body.grp-toc-open .input-area-container {
+
+margin-right: var(--grp-toc-w) !important;
+
+transition: margin-right 0.3s cubic-bezier(0.2,0,0,1) !important;
+
+}
+
+  
+
+/* 目录面板 */
+
+#grp-toc-panel {
+
+position: fixed;
+
+top: 0; right: calc(-1 * var(--grp-toc-w)); bottom: 0;
+
+width: var(--grp-toc-w);
+
+background: #f8f9fa;
+
+border-left: 1px solid rgba(0,0,0,0.08);
+
+box-shadow: -4px 0 16px rgba(0,0,0,0.06);
+
+z-index: 9999;
+
+display: flex; flex-direction: column;
+
+transition: right 0.3s cubic-bezier(0.2,0,0,1);
+
+font-family: "Google Sans","Roboto",sans-serif;
+
+}
+
+#grp-toc-header {
+
+display: flex; align-items: center; justify-content: space-between;
+
+padding: 16px 16px 12px;
+
+border-bottom: 1px solid rgba(0,0,0,0.08);
+
+font-size: 15px; font-weight: 500; color: #202124;
+
+}
+
+#grp-toc-close {
+
+cursor: pointer; color: #5f6368; font-size: 20px;
+
+width: 32px; height: 32px; display: flex; align-items: center;
+
+justify-content: center; border-radius: 50%;
+
+}
+
+#grp-toc-close:hover { background: rgba(0,0,0,0.06); }
+
+#grp-toc-list {
+
+flex: 1; overflow-y: auto; padding: 8px 8px;
+
+}
+
+.grp-toc-item {
+
+padding: 7px 12px; border-radius: 100px; cursor: pointer;
+
+font-size: 13px; color: #3c4043; white-space: nowrap;
+
+overflow: hidden; text-overflow: ellipsis;
+
+transition: background 0.15s;
+
+}
+
+.grp-toc-item:hover { background: rgba(0,0,0,0.05); }
+
+.grp-toc-item.active { background: #e8f0fe; color: #1967d2; font-weight: 500; }
+
+.grp-toc-user {
+
+background: #d3e3fd; color: #041e49; font-weight: 500;
+
+margin: 8px 0 2px;
+
+}
+
+.grp-toc-user:hover { background: #c2d8fc; }
+
+.grp-toc-h1 { font-weight: 500; padding-left: 12px; }
+
+.grp-toc-h2 { padding-left: 24px; opacity: 0.85; }
+
+.grp-toc-h3 { padding-left: 36px; opacity: 0.75; font-size: 12px; }
+
+  
+
+/* 深色模式 — 目录面板 */
+
+body.grp-dark #grp-toc-panel {
+
+background: #1e1e1e;
+
+border-left-color: rgba(255,255,255,0.08);
+
+}
+
+body.grp-dark #grp-toc-header {
+
+color: #e3e3e3;
+
+border-bottom-color: rgba(255,255,255,0.08);
+
+}
+
+body.grp-dark #grp-toc-close { color: #aaa; }
+
+body.grp-dark #grp-toc-close:hover { background: rgba(255,255,255,0.08); }
+
+body.grp-dark .grp-toc-item { color: #c4c7c5; }
+
+body.grp-dark .grp-toc-item:hover { background: rgba(255,255,255,0.06); }
+
+body.grp-dark .grp-toc-item.active { background: #004a77; color: #c2e7ff; }
+
+body.grp-dark .grp-toc-user { background: #004a77; color: #c2e7ff; }
+
+body.grp-dark .grp-toc-user:hover { background: #005a8e; }
+
+  
+
+/* 设置面板遮罩 */
+
+#grp-overlay {
+
+position: fixed; inset: 0;
+
+background: rgba(0,0,0,0.32);
+
+z-index: 10000; display: none;
+
+backdrop-filter: blur(2px);
+
+}
+
+  
+
+/* 设置面板 */
+
+#grp-settings {
+
+position: fixed; top: 50%; left: 50%;
+
+transform: translate(-50%, -50%);
+
+width: 400px; max-width: 92vw; max-height: 85vh;
+
+overflow-y: auto;
+
+background: #fff; border-radius: 24px;
+
+box-shadow: 0 24px 48px rgba(0,0,0,0.18);
+
+z-index: 10001; display: none;
+
+flex-direction: column; gap: 0;
+
+font-family: "Google Sans","Roboto",sans-serif;
+
+}
+
+.grp-s-header {
+
+padding: 20px 24px 16px;
+
+font-size: 18px; font-weight: 500; color: #202124;
+
+border-bottom: 1px solid #f1f3f4;
+
+display: flex; align-items: center; justify-content: space-between;
+
+}
+
+.grp-s-close {
+
+cursor: pointer; color: #5f6368; font-size: 20px;
+
+width: 32px; height: 32px; display: flex; align-items: center;
+
+justify-content: center; border-radius: 50%;
+
+}
+
+.grp-s-close:hover { background: #f1f3f4; }
+
+.grp-s-body { padding: 16px 24px 24px; display: flex; flex-direction: column; gap: 20px; }
+
+.grp-s-row { display: flex; flex-direction: column; gap: 8px; }
+
+.grp-s-label { font-size: 13px; font-weight: 500; color: #5f6368; }
+
+.grp-s-switch-row {
+
+display: flex; align-items: center; justify-content: space-between;
+
+}
+
+.grp-s-switch-label { font-size: 14px; color: #202124; }
+
+  
+
+/* 深色模式 — 设置面板 */
+
+body.grp-dark #grp-settings {
+
+background: #2b2b2b;
+
+box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+
+}
+
+body.grp-dark .grp-s-header { color: #e3e3e3; border-bottom-color: rgba(255,255,255,0.08); }
+
+body.grp-dark .grp-s-close { color: #aaa; }
+
+body.grp-dark .grp-s-close:hover { background: rgba(255,255,255,0.08); }
+
+body.grp-dark .grp-s-label { color: #9aa0a6; }
+
+body.grp-dark .grp-s-switch-label { color: #e3e3e3; }
+
+body.grp-dark .grp-font-btn { background: #3c3c3c; color: #c4c7c5; }
+
+body.grp-dark .grp-font-btn:hover { background: #484848; }
+
+body.grp-dark .grp-font-btn.active { background: #004a77; color: #c2e7ff; border-color: #1a73e8; }
+
+body.grp-dark .grp-input { background: #3c3c3c; border-color: #5f6368; color: #e3e3e3; }
+
+body.grp-dark .grp-input:focus { border-color: #8ab4f8; }
+
+body.grp-dark .grp-slider-val { color: #9aa0a6; }
+
+  
+
+/* 修复输入栏渐变遮罩冲突 */
+
+.input-gradient, input-container.input-gradient {
+
+background: transparent !important;
+
+}
+
+.top-gradient-container,
+
+.scroll-container::before,
+
+.scroll-container::after {
+
+display: none !important;
+
+}
+
+  
+
+/* Toggle switch */
+
+.grp-toggle {
+
+position: relative; width: 44px; height: 24px; cursor: pointer;
+
+}
+
+.grp-toggle input { opacity: 0; width: 0; height: 0; }
+
+.grp-toggle-track {
+
+position: absolute; inset: 0;
+
+background: #dadce0; border-radius: 12px;
+
+transition: background 0.2s;
+
+}
+
+.grp-toggle input:checked + .grp-toggle-track { background: #1a73e8; }
+
+.grp-toggle-thumb {
+
+position: absolute; top: 3px; left: 3px;
+
+width: 18px; height: 18px; background: #fff;
+
+border-radius: 50%; transition: left 0.2s;
+
+box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+
+}
+
+.grp-toggle input:checked ~ .grp-toggle-thumb { left: 23px; }
+
+  
+
+/* 颜色选择 */
+
+.grp-color-row { display: flex; gap: 8px; }
+
+.grp-color-btn {
+
+flex: 1; height: 36px; border-radius: 10px; cursor: pointer;
+
+border: 2px solid transparent; transition: transform 0.1s;
+
+box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+
+}
+
+.grp-color-btn.active { border-color: #1a73e8; transform: scale(0.95); }
+
+  
+
+/* 字体选择 */
+
+.grp-font-row { display: flex; gap: 8px; }
+
+.grp-font-btn {
+
+flex: 1; padding: 8px 0; text-align: center;
+
+background: #f1f3f4; border-radius: 10px;
+
+font-size: 13px; cursor: pointer; color: #3c4043;
+
+border: 2px solid transparent; transition: background 0.15s;
+
+}
+
+.grp-font-btn:hover { background: #e8eaed; }
+
+.grp-font-btn.active { background: #e8f0fe; color: #1967d2; border-color: #1a73e8; font-weight: 500; }
+
+  
+
+/* 滑块行 */
+
+.grp-slider-row { display: flex; align-items: center; gap: 10px; }
+
+.grp-slider-row input[type=range] {
+
+flex: 1; accent-color: #1a73e8; height: 4px;
+
+}
+
+.grp-slider-val {
+
+width: 40px; text-align: center; font-size: 13px;
+
+color: #5f6368; font-variant-numeric: tabular-nums;
+
+}
+
+  
+
+/* 自定义字体输入 */
+
+.grp-input {
+
+width: 100%; padding: 10px 12px; border: 1px solid #dadce0;
+
+border-radius: 8px; font-size: 13px; color: #202124;
+
+box-sizing: border-box; outline: none;
+
+}
+
+.grp-input:focus { border-color: #1a73e8; }
+
+`);
+
+  
+
+// ─── DOM 工具 ─────────────────────────────────────────────────
+
+function el(tag, attrs = {}, children = []) {
+
+const e = document.createElement(tag);
+
+Object.entries(attrs).forEach(([k, v]) => {
+
+if (k === 'cls') e.className = v;
+
+else if (k === 'text') e.textContent = v;
+
+else e.setAttribute(k, v);
+
+});
+
+children.forEach(c => c && e.appendChild(c));
+
+return e;
+
+}
+
+  
+
+function waitFor(selector, timeout = 10000) {
+
+return new Promise((resolve, reject) => {
+
+const found = document.querySelector(selector);
+
+if (found) return resolve(found);
+
+const obs = new MutationObserver(() => {
+
+const node = document.querySelector(selector);
+
+if (node) { obs.disconnect(); resolve(node); }
+
+});
+
+obs.observe(document.body, { childList: true, subtree: true });
+
+setTimeout(() => { obs.disconnect(); reject(new Error('timeout: ' + selector)); }, timeout);
+
+});
+
+}
+
+  
+
+// ─── 应用配置 ─────────────────────────────────────────────────
+
+function applyConfig() {
+
+const root = document.documentElement;
+
+const t = THEMES[cfg.theme] || THEMES.yellow;
+
+root.style.setProperty('--grp-bg', t.bg);
+
+root.style.setProperty('--grp-text', t.text);
+
+root.style.setProperty('--grp-accent', t.accent);
+
+root.style.setProperty('--grp-input-bg', t.inputBg);
+
+  
+
+const fontStack = cfg.fontType === 'custom' && cfg.customFontName
+
+? `"${cfg.customFontName}",sans-serif`
+
+: (FONTS[cfg.fontType] || FONTS.serif);
+
+root.style.setProperty('--grp-font', fontStack);
+
+root.style.setProperty('--grp-fs', cfg.fontSize + 'px');
+
+root.style.setProperty('--grp-lh', cfg.lineHeight);
+
+root.style.setProperty('--grp-ls', cfg.letterSpacing + 'px');
+
+root.style.setProperty('--grp-max-w', cfg.maxWidth + 'px');
+
+  
+
+document.body.classList.toggle('grp-immersive', cfg.immersive);
+
+document.body.classList.toggle('grp-public', cfg.immersive && cfg.publicStyle);
+
+  
+
+if (cfg.fontType === 'custom' && cfg.customFontUrl) {
+
+let link = document.getElementById('grp-custom-font');
+
+if (!link) {
+
+link = document.createElement('link');
+
+link.id = 'grp-custom-font';
+
+link.rel = 'stylesheet';
+
+document.head.appendChild(link);
+
+}
+
+if (link.href !== cfg.customFontUrl) link.href = cfg.customFontUrl;
+
+}
+
+}
+
+  
+
+// ─── 目录 ─────────────────────────────────────────────────────
+
+let tocPanel, tocList, tocOpen = false;
+
+let scrollObserver = null;
+
+  
+
+function buildTocPanel() {
+
+if (document.getElementById('grp-toc-panel')) return;
+
+  
+
+tocPanel = el('div', { id: 'grp-toc-panel' }, [
+
+el('div', { id: 'grp-toc-header' }, [
+
+el('span', { text: '目录' }),
+
+el('div', { id: 'grp-toc-close', text: '✕' }),
+
+]),
+
+(tocList = el('div', { id: 'grp-toc-list' })),
+
+]);
+
+document.body.appendChild(tocPanel);
+
+document.getElementById('grp-toc-close').addEventListener('click', toggleToc);
+
+}
+
+  
+
+function toggleToc() {
+
+buildTocPanel();
+
+tocOpen = !tocOpen;
+
+tocPanel.style.right = tocOpen ? '0' : 'calc(-1 * var(--grp-toc-w))';
+
+document.body.classList.toggle('grp-toc-open', tocOpen);
+
+if (tocOpen) refreshToc();
+
+}
+
+  
+
+function refreshToc() {
+
+if (!tocList) return;
+
+tocList.replaceChildren();
+
+  
+
+const main = document.querySelector('#chat-history');
+
+if (!main) {
+
+const empty = el('div', { text: '暂无内容' });
+
+empty.style.cssText = 'padding:16px;color:#999;font-size:13px';
+
+tocList.appendChild(empty);
+
+return;
+
+}
+
+  
+
+const items = [];
+
+  
+
+// 用户提问
+
+main.querySelectorAll('.query-text.gds-body-l').forEach(node => {
+
+const text = node.textContent.trim().replace(/\s+/g, ' ');
+
+if (!text) return;
+
+const label = text.length > 30 ? text.slice(0, 30) + '…' : text;
+
+const scrollTarget = node.closest('.user-query-container') || node;
+
+const div = el('div', { cls: 'grp-toc-item grp-toc-user', text: label });
+
+div.addEventListener('click', () => smoothScrollTo(scrollTarget));
+
+tocList.appendChild(div);
+
+items.push({ el: div, target: scrollTarget });
+
+});
+
+  
+
+// AI 回复标题
+
+main.querySelectorAll('.model-response-text h1, .model-response-text h2, .model-response-text h3').forEach(h => {
+
+const text = h.textContent.trim();
+
+if (!text) return;
+
+const level = h.tagName.toLowerCase();
+
+const div = el('div', { cls: `grp-toc-item grp-toc-${level}`, text });
+
+div.addEventListener('click', () => smoothScrollTo(h));
+
+tocList.appendChild(div);
+
+items.push({ el: div, target: h });
+
+});
+
+  
+
+if (items.length === 0) {
+
+const empty = el('div', { text: '暂无标题' });
+
+empty.style.cssText = 'padding:16px;color:#999;font-size:13px';
+
+tocList.appendChild(empty);
+
+return;
+
+}
+
+  
+
+setupScrollHighlight(items);
+
+}
+
+  
+
+function smoothScrollTo(target) {
+
+const container = document.querySelector('#chat-history') || document.scrollingElement;
+
+const offset = 80;
+
+if (container && container !== document.scrollingElement) {
+
+const top = target.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - offset;
+
+container.scrollTo({ top, behavior: 'smooth' });
+
+} else {
+
+const top = target.getBoundingClientRect().top + window.scrollY - offset;
+
+window.scrollTo({ top, behavior: 'smooth' });
+
+}
+
+}
+
+  
+
+function setupScrollHighlight(items) {
+
+if (scrollObserver) scrollObserver.disconnect();
+
+const io = new IntersectionObserver((entries) => {
+
+entries.forEach(entry => {
+
+if (entry.isIntersecting) {
+
+const match = items.find(i => i.target === entry.target);
+
+if (match) {
+
+items.forEach(i => i.el.classList.remove('active'));
+
+match.el.classList.add('active');
+
+}
+
+}
+
+});
+
+}, { threshold: 0.3, rootMargin: '-60px 0px -60% 0px' });
+
+  
+
+items.forEach(i => io.observe(i.target));
+
+scrollObserver = io;
+
+}
+
+  
+
+// ─── 设置面板 ─────────────────────────────────────────────────
+
+function buildSettings() {
+
+if (document.getElementById('grp-overlay')) return;
+
+  
+
+const overlay = el('div', { id: 'grp-overlay' });
+
+overlay.style.display = 'none';
+
+overlay.addEventListener('click', closeSettings);
+
+document.body.appendChild(overlay);
+
+  
+
+const panel = el('div', { id: 'grp-settings' });
+
+panel.style.display = 'none';
+
+  
+
+// 头部
+
+const header = el('div', { cls: 'grp-s-header' }, [
+
+el('span', { text: '阅读设置' }),
+
+el('div', { cls: 'grp-s-close', text: '✕' }),
+
+]);
+
+header.querySelector('.grp-s-close').addEventListener('click', closeSettings);
+
+panel.appendChild(header);
+
+  
+
+const body = el('div', { cls: 'grp-s-body' });
+
+panel.appendChild(body);
+
+  
+
+// 沉浸模式开关
+
+body.appendChild(makeSwitch('沉浸式阅读', 'immersive', (v) => {
+
+cfg.immersive = v; applyConfig(); saveCfg(cfg);
+
+}));
+
+  
+
+// 主题
+
+const themeRow = el('div', { cls: 'grp-s-row' }, [el('div', { cls: 'grp-s-label', text: '背景主题' })]);
+
+const colorRow = el('div', { cls: 'grp-color-row' });
+
+[
+
+{ id: 'yellow', bg: '#f6f1e7' },
+
+{ id: 'white', bg: '#ffffff', border: '1px solid #ddd' },
+
+{ id: 'green', bg: '#cce8cf' },
+
+{ id: 'dark', bg: '#1a1a1a' },
+
+].forEach(c => {
+
+const btn = el('div', { cls: 'grp-color-btn' + (cfg.theme === c.id ? ' active' : '') });
+
+btn.style.background = c.bg;
+
+if (c.border) btn.style.border = c.border;
+
+btn.dataset.val = c.id;
+
+btn.addEventListener('click', () => {
+
+colorRow.querySelectorAll('.grp-color-btn').forEach(b => b.classList.remove('active'));
+
+btn.classList.add('active');
+
+cfg.theme = c.id; applyConfig(); saveCfg(cfg);
+
+});
+
+colorRow.appendChild(btn);
+
+});
+
+themeRow.appendChild(colorRow);
+
+body.appendChild(themeRow);
+
+  
+
+// 字体
+
+const fontRow = el('div', { cls: 'grp-s-row' }, [el('div', { cls: 'grp-s-label', text: '字体' })]);
+
+const fontBtns = el('div', { cls: 'grp-font-row' });
+
+[{ id: 'serif', name: '宋体' }, { id: 'sans', name: '黑体' }, { id: 'custom', name: '自定义' }].forEach(f => {
+
+const btn = el('div', { cls: 'grp-font-btn' + (cfg.fontType === f.id ? ' active' : ''), text: f.name });
+
+btn.dataset.val = f.id;
+
+btn.addEventListener('click', () => {
+
+fontBtns.querySelectorAll('.grp-font-btn').forEach(b => b.classList.remove('active'));
+
+btn.classList.add('active');
+
+cfg.fontType = f.id; applyConfig(); saveCfg(cfg);
+
+customFontRow.style.display = f.id === 'custom' ? 'flex' : 'none';
+
+});
+
+fontBtns.appendChild(btn);
+
+});
+
+fontRow.appendChild(fontBtns);
+
+  
+
+const customFontRow = el('div', { cls: 'grp-s-row' });
+
+customFontRow.style.display = cfg.fontType === 'custom' ? 'flex' : 'none';
+
+customFontRow.style.flexDirection = 'column';
+
+customFontRow.style.gap = '6px';
+
+const cfName = el('input', { cls: 'grp-input', placeholder: '字体名称，如 LXGW WenKai' });
+
+cfName.value = cfg.customFontName;
+
+cfName.addEventListener('input', () => { cfg.customFontName = cfName.value; applyConfig(); saveCfg(cfg); });
+
+const cfUrl = el('input', { cls: 'grp-input', placeholder: '字体 CSS URL（可选）' });
+
+cfUrl.value = cfg.customFontUrl;
+
+cfUrl.addEventListener('input', () => { cfg.customFontUrl = cfUrl.value; applyConfig(); saveCfg(cfg); });
+
+customFontRow.append(cfName, cfUrl);
+
+fontRow.appendChild(customFontRow);
+
+body.appendChild(fontRow);
+
+  
+
+// 字体大小
+
+body.appendChild(makeSlider('字体大小', 'fontSize', 14, 28, 1, (v) => {
+
+cfg.fontSize = v; applyConfig(); saveCfg(cfg);
+
+}));
+
+  
+
+// 行高
+
+body.appendChild(makeSlider('行高', 'lineHeight', 1.2, 2.4, 0.1, (v) => {
+
+cfg.lineHeight = v; applyConfig(); saveCfg(cfg);
+
+}));
+
+  
+
+// 字间距
+
+body.appendChild(makeSlider('字间距', 'letterSpacing', 0, 4, 0.5, (v) => {
+
+cfg.letterSpacing = v; applyConfig(); saveCfg(cfg);
+
+}));
+
+  
+
+// 阅读宽度
+
+body.appendChild(makeSlider('阅读宽度', 'maxWidth', 600, 1400, 50, (v) => {
+
+cfg.maxWidth = v; applyConfig(); saveCfg(cfg);
+
+}));
+
+  
+
+// 公众号高亮
+
+body.appendChild(makeSwitch('公众号风格高亮（加粗半覆盖）', 'publicStyle', (v) => {
+
+cfg.publicStyle = v; applyConfig(); saveCfg(cfg);
+
+}));
+
+  
+
+// 隐藏底部免责声明
+
+body.appendChild(makeSwitch('隐藏底部免责声明', 'hideFooter', (v) => {
+
+cfg.hideFooter = v;
+
+document.querySelectorAll('hallucination-disclaimer,.hallucination-disclaimer').forEach(node => {
+
+node.style.display = v ? 'none' : '';
+
+});
+
+saveCfg(cfg);
+
+}));
+
+  
+
+document.body.appendChild(panel);
+
+}
+
+  
+
+function makeSwitch(label, key, onChange) {
+
+const row = el('div', { cls: 'grp-s-switch-row' }, [
+
+el('span', { cls: 'grp-s-switch-label', text: label }),
+
+]);
+
+const toggle = el('label', { cls: 'grp-toggle' });
+
+const input = el('input', { type: 'checkbox' });
+
+input.checked = cfg[key];
+
+input.addEventListener('change', () => onChange(input.checked));
+
+const track = el('div', { cls: 'grp-toggle-track' });
+
+const thumb = el('div', { cls: 'grp-toggle-thumb' });
+
+toggle.append(input, track, thumb);
+
+row.appendChild(toggle);
+
+return row;
+
+}
+
+  
+
+function makeSlider(label, key, min, max, step, onChange) {
+
+const row = el('div', { cls: 'grp-s-row' }, [el('div', { cls: 'grp-s-label', text: label })]);
+
+const sliderRow = el('div', { cls: 'grp-slider-row' });
+
+const slider = el('input', { type: 'range' });
+
+slider.min = min; slider.max = max; slider.step = step; slider.value = cfg[key];
+
+const val = el('div', { cls: 'grp-slider-val', text: cfg[key] });
+
+slider.addEventListener('input', () => {
+
+const v = parseFloat(slider.value);
+
+val.textContent = v;
+
+onChange(v);
+
+});
+
+sliderRow.append(slider, val);
+
+row.appendChild(sliderRow);
+
+return row;
+
+}
+
+  
+
+function openSettings() {
+
+buildSettings();
+
+const overlay = document.getElementById('grp-overlay');
+
+const panel = document.getElementById('grp-settings');
+
+if (overlay) overlay.style.display = 'block';
+
+if (panel) panel.style.display = 'flex';
+
+}
+
+function closeSettings() {
+
+const overlay = document.getElementById('grp-overlay');
+
+const panel = document.getElementById('grp-settings');
+
+if (overlay) overlay.style.display = 'none';
+
+if (panel) panel.style.display = 'none';
+
+}
+
+  
+
+// ─── 插入左下角按钮 ───────────────────────────────────────────
+
+function injectButtons() {
+
+const actionList = document.querySelector('mat-action-list.desktop-controls');
+
+if (!actionList || document.getElementById('grp-btn-toc')) return;
+
+  
+
+// 用原生 button 样式，不套 Angular 组件（避免事件被拦截）
+
+function makeNativeBtn(id, icon, ariaLabel, onClick) {
+
+const btn = el('button', {
+
+id,
+
+cls: 'mdc-icon-button mat-mdc-icon-button mat-mdc-button-base mat-ripple side-nav-action-collapsed-button explicit-gmat-override mat-unthemed',
+
+'aria-label': ariaLabel,
+
+title: ariaLabel,
+
+});
+
+btn.style.cssText = 'display:flex;align-items:center;justify-content:center;';
+
+  
+
+const iconEl = el('mat-icon', {
+
+role: 'img',
+
+cls: 'mat-icon notranslate gds-icon-l google-symbols mat-ligature-font mat-icon-no-color',
+
+'aria-hidden': 'true',
+
+'data-mat-icon-type': 'font',
+
+text: icon,
+
+});
+
+  
+
+btn.appendChild(iconEl);
+
+// mousedown 比 click 更早，防止 Angular zone 拦截
+
+btn.addEventListener('mousedown', (e) => {
+
+e.preventDefault();
+
+e.stopPropagation();
+
+onClick();
+
+});
+
+return btn;
+
+}
+
+  
+
+const btnToc = makeNativeBtn('grp-btn-toc', 'menu_book', '目录', toggleToc);
+
+const btnSettings = makeNativeBtn('grp-btn-settings', 'tune', '阅读设置', openSettings);
+
+  
+
+// 插在 settings-and-help-button 之前
+
+const settingsBtn = actionList.querySelector('[data-test-id="settings-and-help-button"]');
+
+if (settingsBtn) {
+
+actionList.insertBefore(btnToc, settingsBtn);
+
+actionList.insertBefore(btnSettings, settingsBtn);
+
+} else {
+
+actionList.prepend(btnSettings);
+
+actionList.prepend(btnToc);
+
+}
+
+}
+
+  
+
+// ─── MutationObserver 监听对话更新 ───────────────────────────
+
+function initObserver() {
+
+const target = document.querySelector('#chat-history') || document.body;
+
+let timer;
+
+const obs = new MutationObserver(() => {
+
+clearTimeout(timer);
+
+timer = setTimeout(() => {
+
+if (tocOpen) refreshToc();
+
+}, 800);
+
+});
+
+obs.observe(target, { childList: true, subtree: true });
+
+}
+
+  
+
+// ─── 初始化 ───────────────────────────────────────────────────
+
+async function init() {
+
+try {
+
+await waitFor('mat-action-list.desktop-controls', 15000);
+
+} catch (e) {
+
+console.warn('[GRP] sidebar not found, falling back');
+
+}
+
+  
+
+applyConfig();
+
+injectButtons();
+
+initObserver();
+
+  
+
+// 路由变化时重新注入（SPA）
+
+let lastUrl = location.href;
+
+setInterval(() => {
+
+if (location.href !== lastUrl) {
+
+lastUrl = location.href;
+
+setTimeout(() => { injectButtons(); if (tocOpen) refreshToc(); }, 1000);
+
+}
+
+}, 500);
+
+  
+
+// 应用隐藏 footer
+
+if (cfg.hideFooter) {
+
+document.querySelectorAll('hallucination-disclaimer,.hallucination-disclaimer').forEach(e => {
+
+e.style.display = 'none';
+
+});
+
+}
+
+  
+
+// 深色模式检测：监听 body.dark-theme
+
+function syncDarkMode() {
+
+const isDark = document.body.classList.contains('dark-theme');
+
+document.body.classList.toggle('grp-dark', isDark);
+
+}
+
+syncDarkMode();
+
+new MutationObserver(syncDarkMode).observe(document.body, {
+
+attributes: true, attributeFilter: ['class']
+
+});
+
+  
+
+console.log('[GRP] Gemini Reader Pro loaded');
+
+}
+
+  
+
+init();
+
+  
+
+})();
