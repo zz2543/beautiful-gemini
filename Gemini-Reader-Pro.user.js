@@ -823,50 +823,68 @@ return;
   
 
 const items = [];
+const tocNodes = Array.from(main.querySelectorAll('.query-text.gds-body-l, .model-response-text'));
 
-  
+tocNodes.forEach((node) => {
 
-// 用户提问
-
-main.querySelectorAll('.query-text.gds-body-l').forEach(node => {
+if (node.matches('.query-text.gds-body-l')) {
 
 const text = node.textContent.trim().replace(/\s+/g, ' ');
-
 if (!text) return;
 
 const label = text.length > 30 ? text.slice(0, 30) + '…' : text;
-
 const scrollTarget = node.closest('.user-query-container') || node;
-
 const div = el('div', { cls: 'grp-toc-item grp-toc-user', text: label });
 
-div.addEventListener('click', () => smoothScrollTo(scrollTarget));
-
-tocList.appendChild(div);
-
-items.push({ el: div, target: scrollTarget });
-
+div.addEventListener('click', () => {
+items.forEach(item => item.el.classList.remove('active'));
+div.classList.add('active');
+smoothScrollTo(scrollTarget);
 });
 
-  
+tocList.appendChild(div);
+items.push({ el: div, target: scrollTarget });
+return;
 
-// AI 回复标题
+}
 
-main.querySelectorAll('.model-response-text h1, .model-response-text h2, .model-response-text h3').forEach(h => {
+const headings = Array.from(node.querySelectorAll('h1, h2')).filter((heading) => heading.textContent.trim());
 
-const text = h.textContent.trim();
+if (headings.length) {
+headings.forEach((heading) => {
+const text = heading.textContent.trim().replace(/\s+/g, ' ');
+const label = text.length > 42 ? text.slice(0, 42) + '…' : text;
+const level = heading.tagName.toLowerCase();
+const div = el('div', { cls: `grp-toc-item grp-toc-${level}`, text: label });
 
-if (!text) return;
-
-const level = h.tagName.toLowerCase();
-
-const div = el('div', { cls: `grp-toc-item grp-toc-${level}`, text });
-
-div.addEventListener('click', () => smoothScrollTo(h));
+div.addEventListener('click', () => {
+items.forEach(item => item.el.classList.remove('active'));
+div.classList.add('active');
+smoothScrollTo(heading);
+});
 
 tocList.appendChild(div);
+items.push({ el: div, target: heading });
+});
 
-items.push({ el: div, target: h });
+return;
+
+}
+
+const fallbackText = getResponseTocLabel(node);
+if (!fallbackText) return;
+
+const label = fallbackText.length > 42 ? fallbackText.slice(0, 42) + '…' : fallbackText;
+const div = el('div', { cls: 'grp-toc-item grp-toc-ai', text: label });
+
+div.addEventListener('click', () => {
+items.forEach(item => item.el.classList.remove('active'));
+div.classList.add('active');
+smoothScrollTo(node);
+});
+
+tocList.appendChild(div);
+items.push({ el: div, target: node });
 
 });
 
@@ -892,13 +910,60 @@ setupScrollHighlight(items);
 
   
 
+function getResponseTocLabel(node) {
+
+const candidates = [
+node.querySelector('p'),
+node.querySelector('li'),
+node.querySelector('h3'),
+node.querySelector('blockquote'),
+node.querySelector('.markdown'),
+node,
+];
+
+for (const candidate of candidates) {
+const text = candidate?.textContent?.trim().replace(/\s+/g, ' ');
+if (text) return text;
+}
+
+return '';
+
+}
+
+  
+
+function getScrollContainer(target) {
+
+let current = target?.parentElement || null;
+
+while (current && current !== document.body) {
+
+const style = window.getComputedStyle(current);
+const overflowY = style.overflowY || '';
+
+if (/(auto|scroll|overlay)/.test(overflowY) && current.scrollHeight > current.clientHeight + 4) {
+return current;
+}
+
+current = current.parentElement;
+
+}
+
+return document.scrollingElement || document.documentElement;
+
+}
+
+  
+
 function smoothScrollTo(target) {
 
-const container = document.querySelector('#chat-history') || document.scrollingElement;
+if (!target) return;
+
+const container = getScrollContainer(target);
 
 const offset = 80;
 
-if (container && container !== document.scrollingElement) {
+if (container && container !== document.scrollingElement && container !== document.documentElement && container !== document.body) {
 
 const top = target.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - offset;
 
@@ -920,6 +985,12 @@ function setupScrollHighlight(items) {
 
 if (scrollObserver) scrollObserver.disconnect();
 
+const rootContainer = items[0]?.target ? getScrollContainer(items[0].target) : null;
+const observerRoot =
+rootContainer && rootContainer !== document.scrollingElement && rootContainer !== document.documentElement && rootContainer !== document.body
+? rootContainer
+: null;
+
 const io = new IntersectionObserver((entries) => {
 
 entries.forEach(entry => {
@@ -940,7 +1011,7 @@ match.el.classList.add('active');
 
 });
 
-}, { threshold: 0.3, rootMargin: '-60px 0px -60% 0px' });
+}, { root: observerRoot, threshold: 0.3, rootMargin: '-60px 0px -60% 0px' });
 
   
 
@@ -1276,6 +1347,118 @@ if (panel) panel.style.display = 'none';
 
 }
 
+const DEFAULT_NATIVE_ICON_CLASS =
+'mat-icon notranslate gds-icon-l google-symbols mat-ligature-font mat-icon-no-color';
+
+const NATIVE_ICON_STYLE_PROPS = [
+'font-variation-settings',
+'font-size',
+'line-height',
+'color',
+];
+
+function getNativeSidebarIconStyle(referenceBtn) {
+
+const nativeIcon = referenceBtn?.querySelector('mat-icon');
+const style = {
+className: DEFAULT_NATIVE_ICON_CLASS,
+inlineStyles: {},
+};
+
+if (!nativeIcon) return style;
+
+const nativeClassName = nativeIcon.getAttribute('class');
+if (nativeClassName && nativeClassName.trim()) {
+style.className = nativeClassName.trim();
+}
+
+const computed = window.getComputedStyle(nativeIcon);
+NATIVE_ICON_STYLE_PROPS.forEach((prop) => {
+const value = computed.getPropertyValue(prop).trim();
+if (value) style.inlineStyles[prop] = value;
+});
+
+return style;
+
+}
+
+function resetInjectedButtonOffsets() {
+
+['grp-btn-toc', 'grp-btn-settings'].forEach((id) => {
+const btn = document.getElementById(id);
+if (!btn) return;
+btn.style.transform = '';
+btn.style.width = '';
+btn.style.minWidth = '';
+btn.style.justifyContent = 'center';
+btn.style.paddingLeft = '';
+btn.style.paddingRight = '';
+btn.style.boxSizing = '';
+});
+
+}
+
+function alignInjectedButtonsToNativeSettings() {
+
+const actionList = document.querySelector('mat-action-list.desktop-controls');
+const settingsBtn = actionList?.querySelector('[data-test-id="settings-and-help-button"]');
+const nativeIcon = settingsBtn?.querySelector('mat-icon');
+
+if (!nativeIcon) {
+resetInjectedButtonOffsets();
+return;
+}
+
+const nativeRect = nativeIcon.getBoundingClientRect();
+const nativeCenterX = nativeRect.left + (nativeRect.width / 2);
+const settingsRect = settingsBtn.getBoundingClientRect();
+const iconLeftInset = Math.round(nativeRect.left - settingsRect.left);
+const buttonWidth = Math.round(settingsRect.width);
+
+['grp-btn-toc', 'grp-btn-settings'].forEach((id) => {
+const btn = document.getElementById(id);
+const icon = btn?.querySelector('mat-icon');
+if (!btn || !icon) return;
+
+btn.style.transform = '';
+btn.style.boxSizing = 'border-box';
+btn.style.width = `${buttonWidth}px`;
+btn.style.minWidth = `${buttonWidth}px`;
+btn.style.justifyContent = 'flex-start';
+btn.style.paddingLeft = `${iconLeftInset}px`;
+btn.style.paddingRight = '0';
+
+const iconRect = icon.getBoundingClientRect();
+const iconCenterX = iconRect.left + (iconRect.width / 2);
+const deltaX = Math.round(nativeCenterX - iconCenterX);
+
+if (Number.isFinite(deltaX) && deltaX !== 0) {
+btn.style.transform = `translateX(${deltaX}px)`;
+}
+});
+
+}
+
+let alignButtonsRaf = 0;
+
+function scheduleButtonAlignment() {
+
+if (alignButtonsRaf) cancelAnimationFrame(alignButtonsRaf);
+alignButtonsRaf = requestAnimationFrame(() => {
+alignButtonsRaf = 0;
+alignInjectedButtonsToNativeSettings();
+});
+
+}
+
+function scheduleButtonAlignmentRetries() {
+
+scheduleButtonAlignment();
+setTimeout(scheduleButtonAlignment, 160);
+setTimeout(scheduleButtonAlignment, 600);
+
+}
+
   
 
 // ─── 插入左下角按钮 ───────────────────────────────────────────
@@ -1286,11 +1469,14 @@ const actionList = document.querySelector('mat-action-list.desktop-controls');
 
 if (!actionList || document.getElementById('grp-btn-toc')) return;
 
+const settingsBtn = actionList.querySelector('[data-test-id="settings-and-help-button"]');
+const nativeIconStyle = getNativeSidebarIconStyle(settingsBtn);
+
   
 
 // 用原生 button 样式，不套 Angular 组件（避免事件被拦截）
 
-function makeNativeBtn(id, icon, ariaLabel, onClick) {
+function makeNativeBtn(id, icon, ariaLabel, onClick, iconStyle) {
 
 const btn = el('button', {
 
@@ -1322,6 +1508,11 @@ text: icon,
 
 });
 
+iconEl.className = iconStyle.className || DEFAULT_NATIVE_ICON_CLASS;
+Object.entries(iconStyle.inlineStyles || {}).forEach(([prop, value]) => {
+iconEl.style.setProperty(prop, value);
+});
+
   
 
 btn.appendChild(iconEl);
@@ -1344,15 +1535,13 @@ return btn;
 
   
 
-const btnToc = makeNativeBtn('grp-btn-toc', 'menu_book', '目录', toggleToc);
+const btnToc = makeNativeBtn('grp-btn-toc', 'menu_book', '目录', toggleToc, nativeIconStyle);
 
-const btnSettings = makeNativeBtn('grp-btn-settings', 'tune', '阅读设置', openSettings);
+const btnSettings = makeNativeBtn('grp-btn-settings', 'tune', '阅读设置', openSettings, nativeIconStyle);
 
   
 
 // 插在 settings-and-help-button 之前
-
-const settingsBtn = actionList.querySelector('[data-test-id="settings-and-help-button"]');
 
 if (settingsBtn) {
 
@@ -1367,6 +1556,8 @@ actionList.prepend(btnSettings);
 actionList.prepend(btnToc);
 
 }
+
+scheduleButtonAlignmentRetries();
 
 }
 
@@ -1418,7 +1609,11 @@ applyConfig();
 
 injectButtons();
 
+scheduleButtonAlignmentRetries();
+
 initObserver();
+
+window.addEventListener('resize', scheduleButtonAlignment);
 
   
 
@@ -1432,7 +1627,11 @@ if (location.href !== lastUrl) {
 
 lastUrl = location.href;
 
-setTimeout(() => { injectButtons(); if (tocOpen) refreshToc(); }, 1000);
+setTimeout(() => {
+injectButtons();
+scheduleButtonAlignmentRetries();
+if (tocOpen) refreshToc();
+}, 1000);
 
 }
 
