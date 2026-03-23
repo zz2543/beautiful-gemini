@@ -6,7 +6,7 @@
 
 // @version 1.0.0
 
-// @description 沉浸式阅读 · 智能目录 · 设置面板
+// @description 阅读美化 · 智能目录 · 设置面板
 
 // @author Zhang Zuhao
 
@@ -33,9 +33,6 @@
 // ─── 配置默认值 ───────────────────────────────────────────────
 
 const DEFAULTS = {
-
-immersive: false,
-
 theme: 'yellow',
 
 fontType: 'serif',
@@ -63,8 +60,15 @@ hideFooter: true,
 function loadCfg() {
 
 const raw = GM_getValue('grp_config', null);
+if (!raw) return { ...DEFAULTS };
 
-return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
+try {
+const parsed = JSON.parse(raw) || {};
+const { immersive, ...rest } = parsed;
+return { ...DEFAULTS, ...rest };
+} catch {
+return { ...DEFAULTS };
+}
 
 }
 
@@ -86,7 +90,7 @@ white: { bg: '#ffffff', text: '#333333', accent: '#f7f7f7', inputBg: 'rgba(255,2
 
 green: { bg: '#cce8cf', text: '#222222', accent: '#ffffff', inputBg: 'rgba(255,255,255,0.7)' },
 
-dark: { bg: '#1a1a1a', text: '#bfbfbf', accent: '#2d2d2d', inputBg: 'rgba(42,42,42,0.8)' },
+dark: { bg: '#242628', text: '#d0d4d7', accent: '#33373b', inputBg: 'rgba(54,58,62,0.84)' },
 
 };
 
@@ -106,7 +110,7 @@ sans: '"Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif',
 
 GM_addStyle(`
 
-/* 沉浸式阅读变量 */
+/* 阅读美化变量 */
 
 :root {
 
@@ -134,23 +138,23 @@ GM_addStyle(`
 
   
 
-/* 沉浸模式激活时覆盖 Gemini 背景色 */
+/* 阅读美化：始终生效 */
 
-body.grp-immersive,
+body.grp-reader,
 
-body.grp-immersive .mat-drawer-container,
+body.grp-reader .mat-drawer-container,
 
-body.grp-immersive bard-sidenav-content,
+body.grp-reader bard-sidenav-content,
 
-body.grp-immersive .content-wrapper {
+body.grp-reader .content-wrapper {
 
 background-color: var(--grp-bg) !important;
 
 }
 
-body.grp-immersive .model-response-text p,
+body.grp-reader .model-response-text p,
 
-body.grp-immersive .model-response-text li {
+body.grp-reader .model-response-text li {
 
 color: var(--grp-text) !important;
 
@@ -158,27 +162,33 @@ text-align: justify !important;
 
 }
 
-body.grp-immersive .model-response-text h1,
+body.grp-reader .model-response-text h1,
 
-body.grp-immersive .model-response-text h2,
+body.grp-reader .model-response-text h2,
 
-body.grp-immersive .model-response-text h3 {
+body.grp-reader .model-response-text h3 {
 
 color: var(--grp-text) !important;
 
 }
 
-body.grp-immersive hallucination-disclaimer,
+body.grp-hide-footer hallucination-disclaimer,
 
-body.grp-immersive .hallucination-disclaimer {
+body.grp-hide-footer .hallucination-disclaimer {
 
 display: none !important;
 
 }
 
+body.grp-reader.grp-hide-footer .input-area-container {
+
+transform: translateY(-20px) !important;
+
+}
+
   
 
-/* 排版设置：始终生效，不依赖沉浸模式 */
+/* 排版设置：始终生效 */
 
 .model-response-text p,
 
@@ -234,19 +244,21 @@ border-radius: 2px !important;
 
 }
 
+body.grp-dark.grp-public .model-response-text strong,
+
+body.grp-dark.grp-public .model-response-text b {
+
+background: linear-gradient(to bottom, transparent 55%, rgba(255,214,64,0.5) 0) !important;
+
+color: #eef2f4 !important;
+
+}
+
   
 
 /* 目录面板 push 布局 */
 
 body.grp-toc-open bard-sidenav-content {
-
-margin-right: var(--grp-toc-w) !important;
-
-transition: margin-right 0.3s cubic-bezier(0.2,0,0,1) !important;
-
-}
-
-body.grp-toc-open .input-area-container {
 
 margin-right: var(--grp-toc-w) !important;
 
@@ -340,7 +352,15 @@ margin: 8px 0 2px;
 
 .grp-toc-h1 { font-weight: 500; padding-left: 12px; }
 
-.grp-toc-h2 { padding-left: 24px; opacity: 0.85; }
+.grp-toc-h2 {
+
+padding-left: 30px;
+
+font-size: 12px;
+
+opacity: 0.78;
+
+}
 
 .grp-toc-h3 { padding-left: 36px; opacity: 0.75; font-size: 12px; }
 
@@ -496,17 +516,30 @@ body.grp-dark .grp-slider-val { color: #9aa0a6; }
 
 /* 修复输入栏渐变遮罩冲突 */
 
-.input-gradient, input-container.input-gradient {
+body.grp-reader .input-gradient,
+body.grp-reader input-container.input-gradient,
+body.grp-reader .input-area-container,
+body.grp-reader .input-area-container::before,
+body.grp-reader .input-area-container::after,
+body.grp-reader input-container,
+body.grp-reader input-container::before,
+body.grp-reader input-container::after {
 
-background: transparent !important;
+background: var(--grp-bg) !important;
+
+background-image: none !important;
 
 }
 
-.top-gradient-container,
+body.grp-reader .top-gradient-container,
 
-.scroll-container::before,
+body.grp-reader .scroll-container::before,
 
-.scroll-container::after {
+body.grp-reader .scroll-container::after {
+
+background: transparent !important;
+
+background-image: none !important;
 
 display: none !important;
 
@@ -680,6 +713,48 @@ setTimeout(() => { obs.disconnect(); reject(new Error('timeout: ' + selector)); 
 
   
 
+function syncFooterVisibility() {
+
+document.querySelectorAll('hallucination-disclaimer,.hallucination-disclaimer').forEach((node) => {
+node.style.display = cfg.hideFooter ? 'none' : '';
+});
+
+}
+
+  
+
+function fixMarkdownRenderArtifacts(root = document) {
+
+const containers = root?.matches?.('.model-response-text')
+? [root]
+: Array.from(root?.querySelectorAll?.('.model-response-text') || []);
+
+containers.forEach((container) => {
+const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+acceptNode(node) {
+if (!node.nodeValue || !node.nodeValue.includes('**')) return NodeFilter.FILTER_REJECT;
+const parent = node.parentElement;
+if (!parent || parent.closest('pre, code, textarea, script, style')) {
+return NodeFilter.FILTER_REJECT;
+}
+return NodeFilter.FILTER_ACCEPT;
+},
+});
+
+const textNodes = [];
+while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+textNodes.forEach((node) => {
+node.nodeValue = node.nodeValue.replace(/\*\*/g, '');
+});
+
+container.normalize();
+});
+
+}
+
+  
+
 // ─── 应用配置 ─────────────────────────────────────────────────
 
 function applyConfig() {
@@ -716,9 +791,13 @@ root.style.setProperty('--grp-max-w', cfg.maxWidth + 'px');
 
   
 
-document.body.classList.toggle('grp-immersive', cfg.immersive);
+document.body.classList.add('grp-reader');
 
-document.body.classList.toggle('grp-public', cfg.immersive && cfg.publicStyle);
+document.body.classList.toggle('grp-public', cfg.publicStyle);
+
+document.body.classList.toggle('grp-hide-footer', cfg.hideFooter);
+
+syncFooterVisibility();
 
   
 
@@ -848,7 +927,7 @@ return;
 
 }
 
-const headings = Array.from(node.querySelectorAll('h1, h2')).filter((heading) => heading.textContent.trim());
+const headings = Array.from(node.querySelectorAll('h1, h2, h3')).filter((heading) => heading.textContent.trim());
 
 if (headings.length) {
 headings.forEach((heading) => {
@@ -1069,16 +1148,6 @@ panel.appendChild(body);
 
   
 
-// 沉浸模式开关
-
-body.appendChild(makeSwitch('沉浸式阅读', 'immersive', (v) => {
-
-cfg.immersive = v; applyConfig(); saveCfg(cfg);
-
-}));
-
-  
-
 // 主题
 
 const themeRow = el('div', { cls: 'grp-s-row' }, [el('div', { cls: 'grp-s-label', text: '背景主题' })]);
@@ -1093,7 +1162,7 @@ const colorRow = el('div', { cls: 'grp-color-row' });
 
 { id: 'green', bg: '#cce8cf' },
 
-{ id: 'dark', bg: '#1a1a1a' },
+{ id: 'dark', bg: '#242628' },
 
 ].forEach(c => {
 
@@ -1239,15 +1308,7 @@ cfg.publicStyle = v; applyConfig(); saveCfg(cfg);
 
 body.appendChild(makeSwitch('隐藏底部免责声明', 'hideFooter', (v) => {
 
-cfg.hideFooter = v;
-
-document.querySelectorAll('hallucination-disclaimer,.hallucination-disclaimer').forEach(node => {
-
-node.style.display = v ? 'none' : '';
-
-});
-
-saveCfg(cfg);
+cfg.hideFooter = v; applyConfig(); saveCfg(cfg);
 
 }));
 
@@ -1577,6 +1638,8 @@ clearTimeout(timer);
 
 timer = setTimeout(() => {
 
+fixMarkdownRenderArtifacts(target);
+
 if (tocOpen) refreshToc();
 
 }, 800);
@@ -1607,6 +1670,8 @@ console.warn('[GRP] sidebar not found, falling back');
 
 applyConfig();
 
+fixMarkdownRenderArtifacts(document);
+
 injectButtons();
 
 scheduleButtonAlignmentRetries();
@@ -1628,6 +1693,7 @@ if (location.href !== lastUrl) {
 lastUrl = location.href;
 
 setTimeout(() => {
+fixMarkdownRenderArtifacts(document);
 injectButtons();
 scheduleButtonAlignmentRetries();
 if (tocOpen) refreshToc();
@@ -1636,20 +1702,6 @@ if (tocOpen) refreshToc();
 }
 
 }, 500);
-
-  
-
-// 应用隐藏 footer
-
-if (cfg.hideFooter) {
-
-document.querySelectorAll('hallucination-disclaimer,.hallucination-disclaimer').forEach(e => {
-
-e.style.display = 'none';
-
-});
-
-}
 
   
 
