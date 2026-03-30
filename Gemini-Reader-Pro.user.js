@@ -4,7 +4,7 @@
 
 // @namespace http://tampermonkey.net/
 
-// @version 1.0.0
+// @version 1.0.1
 
 // @description 阅读美化 · 智能目录 · 设置面板
 
@@ -94,6 +94,8 @@ dark: { bg: '#242628', text: '#d0d4d7', accent: '#33373b', inputBg: 'rgba(54,58,
 
 };
 
+const SYSTEM_THEME_QUERY = window.matchMedia('(prefers-color-scheme: dark)');
+
   
 
 const FONTS = {
@@ -103,6 +105,25 @@ serif: '"Source Han Serif SC","Noto Serif CJK SC","Songti SC",serif',
 sans: '"Source Han Sans SC","PingFang SC","Microsoft YaHei",sans-serif',
 
 };
+
+function getResolvedThemeId(themeId = cfg.theme) {
+
+if (themeId === 'system') return SYSTEM_THEME_QUERY.matches ? 'dark' : 'white';
+
+return THEMES[themeId] ? themeId : DEFAULTS.theme;
+
+}
+
+function syncUiThemeClass() {
+
+if (!document.body) return;
+
+const pageDark = document.body.classList.contains('dark-theme');
+const readerDark = getResolvedThemeId() === 'dark';
+
+document.body.classList.toggle('grp-dark', pageDark || readerDark);
+
+}
 
   
 
@@ -587,19 +608,37 @@ box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 
 /* 颜色选择 */
 
-.grp-color-row { display: flex; gap: 8px; }
+.grp-color-row { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .grp-color-btn {
 
-flex: 1; height: 36px; border-radius: 10px; cursor: pointer;
+flex: 1; min-width: 0; height: 36px; border-radius: 10px; cursor: pointer;
 
-border: 2px solid transparent; transition: transform 0.1s;
+position: relative; display: flex; align-items: flex-end; justify-content: center;
+
+padding: 6px; border: 2px solid transparent; transition: transform 0.1s;
 
 box-shadow: 0 1px 3px rgba(0,0,0,0.12);
 
 }
 
 .grp-color-btn.active { border-color: #1a73e8; transform: scale(0.95); }
+
+.grp-color-label {
+
+padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.82);
+
+font-size: 12px; font-weight: 500; line-height: 1.2; color: #202124;
+
+pointer-events: none; box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+
+}
+
+body.grp-dark .grp-color-label {
+
+background: rgba(0,0,0,0.32); color: #f1f3f4;
+
+}
 
   
 
@@ -761,7 +800,8 @@ function applyConfig() {
 
 const root = document.documentElement;
 
-const t = THEMES[cfg.theme] || THEMES.yellow;
+const themeId = getResolvedThemeId();
+const t = THEMES[themeId] || THEMES.yellow;
 
 root.style.setProperty('--grp-bg', t.bg);
 
@@ -789,6 +829,8 @@ root.style.setProperty('--grp-ls', cfg.letterSpacing + 'px');
 
 root.style.setProperty('--grp-max-w', cfg.maxWidth + 'px');
 
+root.style.colorScheme = themeId === 'dark' ? 'dark' : 'light';
+
   
 
 document.body.classList.add('grp-reader');
@@ -798,6 +840,7 @@ document.body.classList.toggle('grp-public', cfg.publicStyle);
 document.body.classList.toggle('grp-hide-footer', cfg.hideFooter);
 
 syncFooterVisibility();
+syncUiThemeClass();
 
   
 
@@ -1156,17 +1199,24 @@ const colorRow = el('div', { cls: 'grp-color-row' });
 
 [
 
-{ id: 'yellow', bg: '#f6f1e7' },
+{ id: 'system', bg: 'linear-gradient(135deg, #ffffff 0%, #ffffff 48%, #242628 52%, #242628 100%)', name: '系统' },
 
-{ id: 'white', bg: '#ffffff', border: '1px solid #ddd' },
+{ id: 'yellow', bg: '#f6f1e7', name: '米黄' },
 
-{ id: 'green', bg: '#cce8cf' },
+{ id: 'white', bg: '#ffffff', border: '1px solid #ddd', name: '白色' },
 
-{ id: 'dark', bg: '#242628' },
+{ id: 'green', bg: '#cce8cf', name: '绿色' },
+
+{ id: 'dark', bg: '#242628', name: '黑色' },
 
 ].forEach(c => {
 
-const btn = el('div', { cls: 'grp-color-btn' + (cfg.theme === c.id ? ' active' : '') });
+const label = el('span', { cls: 'grp-color-label', text: c.name });
+const btn = el('div', {
+cls: 'grp-color-btn' + (cfg.theme === c.id ? ' active' : ''),
+'data-val': c.id,
+title: c.id === 'system' ? '跟随系统白天/黑夜模式' : c.name,
+}, [label]);
 
 btn.style.background = c.bg;
 
@@ -1189,6 +1239,11 @@ colorRow.appendChild(btn);
 });
 
 themeRow.appendChild(colorRow);
+
+themeRow.appendChild(el('div', {
+cls: 'grp-s-label',
+text: '系统主题会在浅色时切到白底，深色时切到黑底',
+}));
 
 body.appendChild(themeRow);
 
@@ -1705,23 +1760,28 @@ if (tocOpen) refreshToc();
 
   
 
-// 深色模式检测：监听 body.dark-theme
+// 深浅主题同步：跟随系统颜色方案和 Gemini 页面暗色类
 
-function syncDarkMode() {
+syncUiThemeClass();
 
-const isDark = document.body.classList.contains('dark-theme');
-
-document.body.classList.toggle('grp-dark', isDark);
-
-}
-
-syncDarkMode();
-
-new MutationObserver(syncDarkMode).observe(document.body, {
+new MutationObserver(syncUiThemeClass).observe(document.body, {
 
 attributes: true, attributeFilter: ['class']
 
 });
+
+const handleSystemThemeChange = () => {
+
+if (cfg.theme === 'system') applyConfig();
+else syncUiThemeClass();
+
+};
+
+if (typeof SYSTEM_THEME_QUERY.addEventListener === 'function') {
+SYSTEM_THEME_QUERY.addEventListener('change', handleSystemThemeChange);
+} else if (typeof SYSTEM_THEME_QUERY.addListener === 'function') {
+SYSTEM_THEME_QUERY.addListener(handleSystemThemeChange);
+}
 
   
 
